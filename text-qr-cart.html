@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QRCart</title>
+
+  <!--
+    jsQR (MIT License) - QR 코드 디코딩
+    https://github.com/cozmo/jsQR
+    상업적 이용 가능, 무료
+  -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+
+  <style>
+    /* ===== CSS 변수 (디자인 토큰) ===== */
+    :root {
+      --accent:    #00e5a0;
+      --accent-bg: #005f43;
+      --bg:        #0a0a0f;
+      --surface:   #13131a;
+      --surface2:  #1c1c28;
+      --border:    #2a2a3a;
+      --muted:     #666680;
+      --text:      #f0f0f5;
+      --danger:    #ff4d6d;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { height: 100%; }
+    body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+    /* ===== 헤더 ===== */
+    #header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 11px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    #logo { font-weight: 800; font-size: 1.1rem; color: var(--accent); letter-spacing: -0.02em; }
+    #logo span { color: var(--text); }
+
+    /* ===== 탭 버튼 ===== */
+    #tabs { display: flex; gap: 4px; }
+    .tab-btn {
+      background: var(--surface2); color: var(--muted);
+      border: none; border-radius: 7px;
+      padding: 6px 12px; font-size: 0.78rem; font-weight: 700;
+      cursor: pointer; font-family: inherit;
+    }
+    .tab-btn.active { background: var(--accent); color: #000; }
+
+    /* ===== 탭 패널 ===== */
+    .tab-panel { flex: 1; display: none; flex-direction: column; overflow: hidden; min-height: 0; }
+    .tab-panel.active { display: flex; }
+
+    /* ===== 스캔 탭 ===== */
+    #scanner-tab { padding: 14px 16px; gap: 12px; overflow-y: auto; align-items: stretch; }
+
+    .scan-hint { text-align: center; }
+    .scan-hint-label { font-size: 0.72rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; }
+    .scan-hint-sub { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+
+    /* 2열 그리드 */
+    .scan-btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .scan-btn {
+      border: none; border-radius: 12px; padding: 16px 8px;
+      font-size: 0.85rem; font-weight: 700; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      font-family: inherit; transition: opacity 0.15s;
+    }
+    .scan-btn:hover { opacity: 0.88; }
+    .scan-btn .btn-icon { font-size: 1.8rem; }
+    .scan-btn.primary   { background: var(--accent); color: #000; }
+    .scan-btn.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .scan-btn.text-btn  { background: #1a1a2e; color: var(--text); border: 1px solid #4a4a8a; }
+
+    /* QR 인식 중 스피너 */
+    #spinner { display: none; align-items: center; gap: 10px; color: var(--accent); font-size: 0.85rem; justify-content: center; }
+    #spinner.show { display: flex; }
+    .spin-ring {
+      width: 16px; height: 16px;
+      border: 2px solid var(--accent); border-top-color: transparent;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ===== 카트 탭 ===== */
+    #cart-header {
+      padding: 11px 14px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    }
+    #cart-count-label { font-weight: 700; font-size: 0.92rem; }
+    #cart-count-label span { color: var(--accent); }
+    #btn-clear-all {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 6px; padding: 4px 10px; font-size: 0.72rem; cursor: pointer; font-family: inherit;
+    }
+    #btn-clear-all:hover { border-color: var(--danger); color: var(--danger); }
+
+    #cart-list { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+
+    #cart-empty {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 200px; color: var(--muted); gap: 10px; opacity: 0.5;
+    }
+    #cart-empty .empty-icon { font-size: 2.5rem; }
+
+    /* 카트 아이템 카드 */
+    .cart-item {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 11px 12px;
+      display: flex; align-items: flex-start; gap: 8px;
+      animation: slideIn 0.2s ease;
+    }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    .item-num { color: var(--accent); font-size: 0.65rem; font-weight: 700; min-width: 22px; margin-top: 2px; opacity: 0.6; }
+    .item-body { flex: 1; min-width: 0; }
+    .item-preview { width: 100%; border-radius: 8px; margin-bottom: 7px; max-height: 180px; object-fit: cover; display: block; }
+    .item-fields { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+    .item-field { display: flex; gap: 8px; font-size: 0.8rem; line-height: 1.5; }
+    .field-label { color: var(--muted); min-width: 52px; font-size: 0.72rem; padding-top: 1px; }
+    .field-value { color: var(--text); }
+    .field-value.bold { font-weight: 700; }
+    .item-text { font-size: 0.82rem; word-break: break-all; line-height: 1.5; }
+    .item-meta { font-size: 0.66rem; color: var(--muted); margin-top: 4px; display: flex; gap: 5px; align-items: center; }
+    .type-badge { padding: 1px 5px; border-radius: 3px; font-size: 0.6rem; font-weight: 700; }
+    .badge-url, .badge-text, .badge-email, .badge-tel { background: var(--accent-bg); color: var(--accent); }
+    .badge-image { background: #003f8a; color: #60aaff; }
+    .badge-model { background: #2a1a4a; color: #c084fc; }
+    .btn-delete { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 2px; flex-shrink: 0; }
+    .btn-delete:hover { color: var(--danger); }
+
+    /* 내보내기 */
+    #export-area { padding: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+    #export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .btn-export {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      border-radius: 9px; padding: 11px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .btn-export:hover { border-color: var(--accent); color: var(--accent); }
+    #btn-copy-all {
+      background: var(--accent-bg); border: 1px solid var(--accent); color: var(--accent);
+      border-radius: 9px; padding: 12px; font-size: 0.85rem; font-weight: 700;
+      cursor: pointer; font-family: inherit; width: 100%;
+    }
+
+    /* ===== 텍스트 결과 모달 ===== */
+    /* 이미지 크게 보여주고 복사→카트 담기 */
+    #ocr-modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85); backdrop-filter: blur(6px);
+      display: none; align-items: flex-end; justify-content: center;
+      z-index: 500;
+    }
+    #ocr-modal-overlay.open { display: flex; }
+    #ocr-modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px 20px 0 0; padding: 20px 18px 32px;
+      width: 100%; max-height: 85vh;
+      display: flex; flex-direction: column; gap: 12px;
+      }
+    #ocr-modal-title { font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; }
+    #ocr-modal-hint { font-size: 0.75rem; color: var(--muted); line-height: 1.5; }
+    #ocr-preview-img,
+    .ocr-img-fresh {
+      width: 100%; border-radius: 10px;
+      flex: 1; object-fit: contain; min-height: 0;
+      -webkit-touch-callout: none;
+      -webkit-user-select: text;
+      user-select: text;
+      display: block;
+    }
+    #ocr-textarea { display: none; }
+    #ocr-modal-footer { display: flex; gap: 8px; flex-shrink: 0; }
+    #btn-ocr-cancel {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
+      border-radius: 10px; padding: 12px; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    #btn-ocr-add {
+      flex: 2; background: var(--accent); border: none; color: #000;
+      border-radius: 10px; padding: 12px; font-size: 0.88rem; font-weight: 800; cursor: pointer; font-family: inherit;
+    }
+
+    /* ===== 아이템 편집 모달 ===== */
+    #edit-modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85); backdrop-filter: blur(6px);
+      display: none; align-items: flex-end; justify-content: center;
+      z-index: 600;
+    }
+    #edit-modal-overlay.open { display: flex; }
+    #edit-modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px 20px 0 0; padding: 20px 18px 32px;
+      width: 100%; display: flex; flex-direction: column; gap: 12px;
+    }
+    #edit-modal-title { font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; }
+    #edit-textarea {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px; color: var(--text);
+      font-size: 0.85rem; font-family: inherit; resize: none;
+      min-height: 100px; outline: none; line-height: 1.6;
+    }
+    #edit-textarea:focus { border-color: var(--accent); }
+    #edit-modal-footer { display: flex; gap: 8px; }
+    #btn-edit-cancel {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
+      border-radius: 10px; padding: 12px; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    #btn-edit-save {
+      flex: 2; background: var(--accent); border: none; color: #000;
+      border-radius: 10px; padding: 12px; font-size: 0.88rem; font-weight: 800; cursor: pointer; font-family: inherit;
+    }
+
+    /* ===== 토스트 알림 ===== */
+    #toast {
+      position: fixed; top: 14px; left: 50%;
+      transform: translateX(-50%) translateY(-10px);
+      padding: 9px 20px; border-radius: 28px;
+      font-size: 0.85rem; font-weight: 700;
+      pointer-events: none; opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 999; white-space: nowrap;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .hidden-input { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- 숨김 요소: 화면에 안 보이지만 기능에 필요 -->
+  <canvas id="canvas" class="hidden-input"></canvas>
+
+  <!-- 파일 input (고정 배치)
+       capture="environment": 카메라 직접 실행
+       multiple: 여러 장 선택 -->
+  <input id="qr-camera-input"  type="file" accept="image/*" capture="environment" class="hidden-input">
+  <input id="qr-gallery-input" type="file" accept="image/*" multiple class="hidden-input">
+  <input id="txt-camera-input"  type="file" accept="image/*" capture="environment" class="hidden-input">
+  <input id="txt-gallery-input" type="file" accept="image/*" multiple class="hidden-input">
+
+
+  <!-- ===== 헤더 ===== -->
+  <div id="header">
+    <div id="logo">QR<span>CART</span></div>
+    <div id="tabs">
+      <button class="tab-btn active" data-tab="scanner">📷 스캔</button>
+      <button class="tab-btn" data-tab="cart" id="cart-tab-btn">🛒 카트</button>
+    </div>
+  </div>
+
+
+  <!-- ===== 스캔 탭 ===== -->
+  <div id="scanner-tab" class="tab-panel active">
+    <div class="scan-hint">
+      <div class="scan-hint-label">스캔 방법 선택</div>
+      <div class="scan-hint-sub">카메라로 찍거나 갤러리에서 선택하세요</div>
+    </div>
+
+    <div class="scan-btn-grid">
+      <button class="scan-btn primary"   id="btn-qr-camera"> <span class="btn-icon">📷</span><span>QR 촬영</span></button>
+      <button class="scan-btn secondary" id="btn-qr-gallery"><span class="btn-icon">🖼️</span><span>QR 갤러리</span></button>
+      <button class="scan-btn text-btn"  id="btn-txt-camera"> <span class="btn-icon">🔤</span><span>텍스트 촬영</span></button>
+      <button class="scan-btn text-btn"  id="btn-txt-gallery"><span class="btn-icon">📄</span><span>텍스트 갤러리</span></button>
+    </div>
+
+    <!-- QR 인식 중 표시 -->
+    <div id="spinner"><div class="spin-ring"></div> QR 인식 중...</div>
+  </div>
+
+
+  <!-- ===== 카트 탭 ===== -->
+  <div id="cart-tab" class="tab-panel">
+    <div id="cart-header">
+      <div id="cart-count-label">담긴 항목 <span id="cart-count">0</span>개</div>
+      <button id="btn-clear-all">전체 삭제</button>
+    </div>
+    <div id="cart-list">
+      <div id="cart-empty">
+        <span class="empty-icon">🛒</span>
+        <p>QR을 스캔하면 여기에 쌓여요</p>
+      </div>
+    </div>
+    <div id="export-area">
+      <div id="export-row">
+        <button class="btn-export" id="btn-csv">📄 CSV</button>
+        <button class="btn-export" id="btn-txt">📝 TXT</button>
+      </div>
+      <button id="btn-copy-all">📋 전체 복사</button>
+    </div>
+  </div>
+
+
+  <!-- ===== 토스트 ===== -->
+  <div id="toast"></div>
+
+
+  <!-- ===== 텍스트 결과 모달 =====
+       사진을 찍거나 갤러리에서 선택하면 이 모달이 열림
+       이미지를 크게 보면서 텍스트 선택→복사 후 "카트에 담기" 탭 -->
+  <div id="ocr-modal-overlay">
+    <div id="ocr-modal">
+      <div id="ocr-modal-title">
+        <span>📝 텍스트 선택</span>
+        <span id="btn-ocr-close" style="cursor:pointer;font-size:1.2rem;">✕</span>
+      </div>
+      <div id="ocr-modal-hint">텍스트 선택 → 복사 후 아래 버튼 탭</div>
+      <img id="ocr-preview-img" alt="촬영 이미지">
+      <textarea id="ocr-textarea"></textarea>
+      <div id="ocr-modal-footer">
+        <button id="btn-ocr-cancel">닫기</button>
+        <button id="btn-ocr-add">카트에 담기</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ===== 아이템 편집 모달 ===== -->
+  <div id="edit-modal-overlay">
+    <div id="edit-modal">
+      <div id="edit-modal-title">
+        <span>✏️ 텍스트 수정</span>
+        <span id="btn-edit-close" style="cursor:pointer;font-size:1.2rem;">✕</span>
+      </div>
+      <textarea id="edit-textarea" placeholder="텍스트를 수정하세요"></textarea>
+      <div id="edit-modal-footer">
+        <button id="btn-edit-cancel">취소</button>
+        <button id="btn-edit-save">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ============================================================
+       유틸리티
+    ============================================================ */
+
+    /**
+     * 텍스트 타입 감지
+     * QR 코드는 다양한 포맷을 담을 수 있어서 타입별로 다르게 표시
+     */
+    function detectType(text) {
+      if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i.test(text)) return 'IMAGE';
+      if (/^https?:\/\//i.test(text))  return 'URL';
+      if (/^mailto:/i.test(text))      return 'EMAIL';
+      if (/^tel:/i.test(text))         return 'TEL';
+      if (/^[A-Z]+:[^|]+(\|[A-Z]+:[^|]+)+$/.test(text)) return 'MODEL';
+      try { JSON.parse(text); return 'MODEL'; } catch(e) {}
+      return 'TEXT';
+    }
+
+    /**
+     * MODEL 타입 파싱
+     * 지원: KEY:VALUE|KEY:VALUE 또는 JSON
+     * 반환: [[key, value], ...] 배열
+     */
+    function parseModelData(text) {
+      try {
+        const obj = JSON.parse(text);
+        if (typeof obj === 'object' && obj !== null) return Object.entries(obj);
+      } catch(e) {}
+      if (text.includes('|') && text.includes(':')) {
+        return text.split('|').map(pair => {
+          const i = pair.indexOf(':');
+          return [pair.slice(0, i).trim(), pair.slice(i + 1).trim()];
+        });
+      }
+      return null;
+    }
+
+    // MODEL 필드 한국어 라벨
+    const FIELD_LABELS = {
+      MODEL:'모델명', COLOR:'색상', PRICE:'가격', STOCK:'재고',
+      DESC:'설명', NAME:'이름', SIZE:'사이즈', BRAND:'브랜드',
+      SKU:'SKU', WEIGHT:'무게', MATERIAL:'소재',
+    };
+
+    // 파일명용 날짜 문자열 (예: 20260529-2030)
+    function dateStr() {
+      const d = new Date();
+      return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+
+    /* ============================================================
+       앱 상태
+    ============================================================ */
+    let items = []; // 카트 아이템 배열: { id, text, type, time }
+
+
+    /* ============================================================
+       DOM 참조
+    ============================================================ */
+    const canvas       = document.getElementById('canvas');
+    const ctx          = canvas.getContext('2d');
+    const spinner      = document.getElementById('spinner');
+    const cartList     = document.getElementById('cart-list');
+    const cartEmpty    = document.getElementById('cart-empty');
+    const cartCountEl  = document.getElementById('cart-count');
+    const cartTabBtn   = document.getElementById('cart-tab-btn');
+    const toastEl      = document.getElementById('toast');
+    const ocrOverlay   = document.getElementById('ocr-modal-overlay');
+    const ocrTextarea  = document.getElementById('ocr-textarea');
+
+
+    /* ============================================================
+       탭 전환
+    ============================================================ */
+    document.getElementById('tabs').addEventListener('click', function(e) {
+      const btn = e.target.closest('.tab-btn');
+      if (!btn) return;
+      const target = btn.dataset.tab;
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById(target + '-tab').classList.add('active');
+    });
+
+
+    /* ============================================================
+       토스트 알림
+       type: '' = 성공(초록) | 'dup' = 중복(회색) | 'err' = 오류(빨강)
+    ============================================================ */
+    let toastTimer;
+    function showToast(msg, type) {
+      type = type || '';
+      toastEl.textContent = msg;
+      toastEl.style.background = type === 'err' ? '#ff4d6d' : type === 'dup' ? '#555' : '#00e5a0';
+      toastEl.style.color = type ? '#fff' : '#000';
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+    }
+
+
+    /* ============================================================
+       카트 렌더링
+       items 배열을 DOM에 반영
+    ============================================================ */
+    function renderCart() {
+      cartTabBtn.textContent = items.length ? `🛒 카트 (${items.length})` : '🛒 카트';
+      cartCountEl.textContent = items.length;
+
+      if (items.length === 0) {
+        cartList.innerHTML = '';
+        cartList.appendChild(cartEmpty);
+        return;
+      }
+
+      cartEmpty.remove();
+      cartList.innerHTML = '';
+
+      items.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'cart-item';
+
+        // 순번
+        const num = document.createElement('div');
+        num.className = 'item-num';
+        num.textContent = `#${String(idx+1).padStart(2, '0')}`;
+
+        // 본문
+        const body = document.createElement('div');
+        body.className = 'item-body';
+
+        // IMAGE: 이미지 미리보기
+        if (item.type === 'IMAGE') {
+          const img = document.createElement('img');
+          img.src = item.text;
+          img.className = 'item-preview';
+          img.onerror = () => img.remove();
+          body.appendChild(img);
+        }
+
+        // MODEL: 필드 테이블
+        if (item.type === 'MODEL') {
+          const fields = parseModelData(item.text);
+          if (fields) {
+            const table = document.createElement('div');
+            table.className = 'item-fields';
+            fields.forEach(([k, v]) => {
+              const row   = document.createElement('div'); row.className = 'item-field';
+              const label = document.createElement('span'); label.className = 'field-label';
+              label.textContent = FIELD_LABELS[k] || k;
+              const val = document.createElement('span');
+              val.className = 'field-value' + (k === 'MODEL' || k === 'NAME' ? ' bold' : '');
+              val.textContent = k === 'PRICE' ? Number(v).toLocaleString('ko-KR') + '원' : v;
+              row.appendChild(label); row.appendChild(val);
+              table.appendChild(row);
+            });
+            body.appendChild(table);
+          }
+        }
+
+        // 그 외: 텍스트 표시
+        if (item.type !== 'MODEL') {
+          const text = document.createElement('div');
+          text.className = 'item-text';
+          text.textContent = item.text;
+          body.appendChild(text);
+        }
+
+        // 타입 뱃지 + 시각
+        const meta = document.createElement('div'); meta.className = 'item-meta';
+        const badge = document.createElement('span');
+        badge.className = `type-badge badge-${item.type.toLowerCase()}`;
+        badge.textContent = item.type;
+        meta.appendChild(badge);
+        meta.appendChild(document.createTextNode(item.time));
+        body.appendChild(meta);
+
+        // 버튼 영역
+        const btnWrap = document.createElement('div');
+        btnWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;flex-shrink:0;';
+
+        // 편집 버튼 (텍스트 아이템만 표시, QR은 숨김)
+        const edit = document.createElement('button');
+        edit.className = 'btn-delete'; edit.textContent = '✏️';
+        edit.style.fontSize = '0.85rem';
+        edit.style.display = item.source === 'qr' ? 'none' : 'block';
+        edit.addEventListener('click', () => openEditModal(item.id, item.text));
+
+        // 삭제 버튼
+        const del = document.createElement('button');
+        del.className = 'btn-delete'; del.textContent = '✕';
+        del.addEventListener('click', () => {
+          items = items.filter(i => i.id !== item.id);
+          renderCart();
+        });
+
+        btnWrap.appendChild(edit);
+        btnWrap.appendChild(del);
+        div.appendChild(num); div.appendChild(body); div.appendChild(btnWrap);
+        cartList.appendChild(div);
+      });
+    }
+
+
+    /* ============================================================
+       아이템 추가
+       중복 텍스트는 추가하지 않음
+    ============================================================ */
+    // source: 'qr' | 'text' 구분 (편집 가능 여부 결정)
+    function addItem(data, source) {
+      const text = data.trim();
+      if (!text) return;
+      items.push({
+        id:     Date.now() + Math.random(),
+        text,
+        type:   detectType(text),
+        source: source || 'text',
+        time:   new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' }),
+      });
+      showToast('✅ 담겼어요!');
+      renderCart();
+    }
+
+
+    /* ============================================================
+       QR 이미지 처리
+       이미지를 캔버스에 그리고 jsQR로 QR 디코딩
+    ============================================================ */
+    function processQRImage(file) {
+      if (!file) return;
+      spinner.classList.add('show');
+
+      createImageBitmap(file).then(bitmap => {
+        // 속도 향상을 위해 800px 이하로 리사이즈
+        const scale = Math.min(1, 800 / Math.max(bitmap.width, bitmap.height));
+        canvas.width  = Math.round(bitmap.width  * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+        const code = jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+        spinner.classList.remove('show');
+
+        if (code && code.data) addItem(code.data, 'qr');
+        else showToast('QR을 찾지 못했어요', 'err');
+
+      }).catch(e => {
+        spinner.classList.remove('show');
+        showToast('인식 오류: ' + e.message, 'err');
+      });
+    }
+
+    /* QR 촬영/갤러리 버튼 연결
+       두 번째 클릭 버그: change 이벤트 후 value를 null로 초기화하면 해결 */
+    const qrCameraInput  = document.getElementById('qr-camera-input');
+    const qrGalleryInput = document.getElementById('qr-gallery-input');
+
+    qrCameraInput.addEventListener('change', e => {
+      Array.from(e.target.files || []).forEach(processQRImage);
+      e.target.value = null; // null 초기화 (iOS에서 '' 보다 안정적)
+    });
+    qrGalleryInput.addEventListener('change', e => {
+      Array.from(e.target.files || []).forEach(processQRImage);
+      e.target.value = null;
+    });
+
+    document.getElementById('btn-qr-camera') .addEventListener('click', () => qrCameraInput.click());
+    document.getElementById('btn-qr-gallery').addEventListener('click', () => qrGalleryInput.click());
+
+
+    /* ============================================================
+       텍스트 이미지 처리
+       사진을 찍거나 갤러리에서 선택하면 텍스트 결과 모달로 이미지 전달
+       사용자가 이미지에서 텍스트를 선택→복사 후 "카트에 담기" 탭
+    ============================================================ */
+    function handleTextImage(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => openOCRModal(reader.result); // base64 이미지 URL
+      reader.readAsDataURL(file);
+    }
+
+    /* 텍스트 촬영/갤러리 버튼 연결 */
+    const txtCameraInput  = document.getElementById('txt-camera-input');
+    const txtGalleryInput = document.getElementById('txt-gallery-input');
+
+    txtCameraInput.addEventListener('change', e => {
+      if (e.target.files[0]) handleTextImage(e.target.files[0]);
+      e.target.value = null;
+    });
+    txtGalleryInput.addEventListener('change', e => {
+      if (e.target.files[0]) handleTextImage(e.target.files[0]);
+      e.target.value = null;
+    });
+
+    document.getElementById('btn-txt-camera') .addEventListener('click', () => txtCameraInput.click());
+    document.getElementById('btn-txt-gallery').addEventListener('click', () => txtGalleryInput.click());
+
+
+    /* ============================================================
+       텍스트 결과 모달
+    ============================================================ */
+    function openOCRModal(imgUrl) {
+      const modal = document.getElementById('ocr-modal');
+      // 기존 이미지 제거
+      const old = document.getElementById('ocr-preview-img');
+      if (old) old.remove();
+      // 새 img 요소 생성 (이전 라이브 텍스트 선택 상태 완전 초기화)
+      const img = document.createElement('img');
+      img.id = 'ocr-preview-img';
+      img.className = 'ocr-img-fresh';
+      img.alt = '촬영 이미지';
+      img.src = imgUrl;
+      // ocr-textarea 앞에 삽입
+      const textarea = document.getElementById('ocr-textarea');
+      modal.insertBefore(img, textarea);
+      ocrOverlay.classList.add('open');
+    }
+
+    function closeOCRModal() {
+      ocrOverlay.classList.remove('open');
+    }
+
+    document.getElementById('btn-ocr-close') .addEventListener('click', closeOCRModal);
+    document.getElementById('btn-ocr-cancel').addEventListener('click', closeOCRModal);
+    ocrOverlay.addEventListener('click', e => { if (e.target === ocrOverlay) closeOCRModal(); });
+
+    // "카트에 담기": 클립보드에서 복사된 텍스트 읽어서 담기
+    document.getElementById('btn-ocr-add').addEventListener('click', () => {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText()
+          .then(text => {
+            text = text.trim();
+            if (text) { addItem(text, 'text'); closeOCRModal(); }
+            else showToast('복사된 텍스트가 없어요', 'dup');
+          })
+          .catch(() => showToast('복사 후 다시 눌러봐요', 'err'));
+      } else {
+        showToast('클립보드 미지원 브라우저예요', 'err');
+      }
+    });
+
+
+    /* ============================================================
+       카트 내보내기
+    ============================================================ */
+
+    // 전체 삭제
+    document.getElementById('btn-clear-all').addEventListener('click', () => {
+      if (!items.length) return;
+      if (confirm(`${items.length}개를 모두 삭제할까요?`)) { items = []; renderCart(); }
+    });
+
+    // CSV 저장 (UTF-8 BOM → 엑셀 한글 깨짐 방지)
+    document.getElementById('btn-csv').addEventListener('click', () => {
+      if (!items.length) { showToast('담긴 항목이 없어요', 'dup'); return; }
+      const rows = [
+        ['번호','내용','타입','시간'],
+        ...items.map((it, i) => [i+1, `"${it.text.replace(/"/g,'""')}"`, it.type, it.time]),
+      ];
+      const blob = new Blob(['\uFEFF' + rows.map(r => r.join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `qr-${dateStr()}.csv`;
+      a.click();
+      showToast('CSV 저장됨');
+    });
+
+    // TXT 저장
+    document.getElementById('btn-txt').addEventListener('click', () => {
+      if (!items.length) { showToast('담긴 항목이 없어요', 'dup'); return; }
+      const blob = new Blob([items.map((it, i) => `[${i+1}] ${it.text}`).join('\n')], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `qr-${dateStr()}.txt`;
+      a.click();
+      showToast('TXT 저장됨');
+    });
+
+    // 클립보드 복사
+    document.getElementById('btn-copy-all').addEventListener('click', async () => {
+      if (!items.length) { showToast('담긴 항목이 없어요', 'dup'); return; }
+      try {
+        await navigator.clipboard.writeText(items.map((it, i) => `[${i+1}] ${it.text}`).join('\n'));
+        showToast('📋 복사됐어요!');
+      } catch(e) {
+        showToast('복사 실패', 'err');
+      }
+    });
+
+
+    /* ============================================================
+       아이템 편집 모달
+    ============================================================ */
+    let editTargetId = null;
+    const editOverlay  = document.getElementById('edit-modal-overlay');
+    const editTextarea = document.getElementById('edit-textarea');
+
+    function openEditModal(id, text) {
+      editTargetId = id;
+      editTextarea.value = text;
+      editOverlay.classList.add('open');
+      setTimeout(() => editTextarea.focus(), 100);
+    }
+
+    function closeEditModal() {
+      editOverlay.classList.remove('open');
+      editTargetId = null;
+    }
+
+    document.getElementById('btn-edit-close') .addEventListener('click', closeEditModal);
+    document.getElementById('btn-edit-cancel').addEventListener('click', closeEditModal);
+    editOverlay.addEventListener('click', e => { if (e.target === editOverlay) closeEditModal(); });
+
+    document.getElementById('btn-edit-save').addEventListener('click', () => {
+      const text = editTextarea.value.trim();
+      if (!text) { showToast('텍스트를 입력해주세요', 'dup'); return; }
+      const item = items.find(i => i.id === editTargetId);
+      if (item) {
+        item.text = text;
+        item.type = detectType(text); // 타입 재감지
+        showToast('✅ 수정됐어요!');
+        renderCart();
+      }
+      closeEditModal();
+    });
+
+    /* ============================================================
+       초기화
+    ============================================================ */
+    renderCart();
+
+  </script>
+</body>
+</html>
